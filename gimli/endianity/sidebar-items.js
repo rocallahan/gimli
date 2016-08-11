@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["BigEndian","Big endian byte order."],["LittleEndian","Little endian byte order."]],"struct":[["EndianBuf","A `&[u8]` slice with compile-time endianity metadata."]],"trait":[["Endianity","A trait describing the endianity of some buffer."]]});
