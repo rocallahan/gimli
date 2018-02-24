@@ -471,11 +471,6 @@ impl<R: Reader> LocListIter<R> {
                 }
             };
 
-            if range.begin == range.end {
-                // An empty location list entry, skip it.
-                continue;
-            }
-
             if range.begin > range.end {
                 self.raw.input.empty();
                 return Err(Error::InvalidLocationAddressRange);
