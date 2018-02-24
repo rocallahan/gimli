@@ -441,11 +441,6 @@ impl<R: Reader> RngListIter<R> {
                 }
             };
 
-            if range.begin == range.end {
-                // An empty range list entry, skip it.
-                continue;
-            }
-
             if range.begin > range.end {
                 self.raw.input.empty();
                 return Err(Error::InvalidAddressRange);
