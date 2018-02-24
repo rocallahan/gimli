@@ -13,7 +13,7 @@ use object::Object;
 use std::collections::HashMap;
 use std::env;
 use std::io;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::fs;
 use std::process;
 use std::error;
@@ -196,8 +196,8 @@ fn main() {
         };
         let ret = {
             let stdout = io::stdout();
-            let mut lock = stdout.lock();
-            dump_file(&mut lock, &file, endian, &flags)
+            let mut writer = BufWriter::new(stdout.lock());
+            dump_file(&mut writer, &file, endian, &flags)
         };
         match ret {
             Ok(_) => (),
