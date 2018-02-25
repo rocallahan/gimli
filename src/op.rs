@@ -199,6 +199,37 @@ where
         /// The offfset to add.
         offset: u64,
     },
+    /// Represents `DW_OP_const_type`.
+    TypedLiteral {
+        /// The DIE of the base type
+        base_type: UnitOffset<Offset>,
+        /// The value
+        value: R,
+    },
+    /// Represents `DW_OP_regval_type`
+    TypedRegister {
+        /// The DIE of the base type
+        base_type: UnitOffset<Offset>,
+        /// The register number.
+        register: u64,
+    },
+    /// Represents `DW_OP_deref_type`
+    TypedDeref {
+        /// The DIE of the base type
+        base_type: UnitOffset<Offset>,
+        /// The register number.
+        size: u8,
+    },
+    /// Represents `DW_OP_convert`
+    Convert {
+        /// The DIE of the base type
+        base_type: UnitOffset<Offset>,
+    },
+    /// Represents `DW_OP_reinterpret`
+    Reinterpret {
+        /// The DIE of the base type
+        base_type: UnitOffset<Offset>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -826,6 +857,43 @@ where
                     offset: UnitOffset(value),
                 })
             }
+            constants::DW_OP_const_type | constants::DW_OP_GNU_const_type => {
+                let base_type = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
+                let len = bytes.read_u8()?;
+                let value = bytes.split(R::Offset::from_u8(len))?;
+                Ok(Operation::TypedLiteral {
+                    base_type: UnitOffset(base_type),
+                    value: value,
+                })
+            }
+            constants::DW_OP_regval_type | constants::DW_OP_GNU_regval_type => {
+                let register = bytes.read_uleb128()?;
+                let base_type = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
+                Ok(Operation::TypedRegister {
+                    base_type: UnitOffset(base_type),
+                    register: register,
+                })
+            }
+            constants::DW_OP_deref_type | constants::DW_OP_GNU_deref_type => {
+                let size  = bytes.read_u8()?;
+                let base_type = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
+                Ok(Operation::TypedDeref {
+                    base_type: UnitOffset(base_type),
+                    size: size,
+                })
+            }
+            constants::DW_OP_convert | constants::DW_OP_GNU_convert => {
+                let base_type = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
+                Ok(Operation::Convert {
+                    base_type: UnitOffset(base_type),
+                })
+            }
+            constants::DW_OP_reinterpret | constants::DW_OP_GNU_reinterpret => {
+                let base_type = bytes.read_uleb128().and_then(R::Offset::from_u64)?;
+                Ok(Operation::Convert {
+                    base_type: UnitOffset(base_type),
+                })
+            }
 
             _ => Err(Error::InvalidExpression(name)),
         }
@@ -1370,6 +1438,12 @@ impl<R: Reader> Evaluation<R> {
 
             Operation::Piece { .. } => {
                 piece_end = true;
+            }
+
+            Operation::TypedLiteral { .. } | Operation::TypedRegister { .. } |
+            Operation::TypedDeref { .. } | Operation::Convert { .. } |
+            Operation::Reinterpret { .. } => {
+                return Err(Error::UnsupportedTypedStack);
             }
         }
 
@@ -2390,6 +2464,30 @@ mod tests {
             },
             &Operation::ImplicitValue {
                 data: EndianBuf::new(&data[..], LittleEndian),
+            },
+            address_size,
+            format,
+        );
+    }
+
+    #[test]
+    fn test_op_parse_const_type() {
+        // Doesn't matter for this test.
+        let address_size = 4;
+        let format = Format::Dwarf32;
+
+        let data = b"hello";
+
+        check_op_parse(
+            |s| {
+                s.D8(constants::DW_OP_const_type.0)
+                    .uleb(100)
+                    .D8(data.len() as u8)
+                    .append_bytes(&data[..])
+            },
+            &Operation::TypedLiteral {
+                base_type: UnitOffset(100),
+                value: EndianBuf::new(&data[..], LittleEndian),
             },
             address_size,
             format,

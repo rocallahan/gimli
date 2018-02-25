@@ -1064,6 +1064,24 @@ fn dump_op<R: Reader, W: Write>(
         gimli::Operation::TextRelativeOffset { offset } => {
             write!(w, " 0x{:08x}", offset)?;
         }
+        gimli::Operation::TypedLiteral { base_type, value } => {
+            write!(w, " type 0x{:08x} contents 0x", base_type.0)?;
+            for byte in value.to_slice()?.iter() {
+                write!(w, "{:02x}", byte)?;
+            }
+        }
+        gimli::Operation::TypedRegister { base_type, register } => {
+            write!(w, " type 0x{:08x} register {}", base_type.0, register)?;
+        }
+        gimli::Operation::TypedDeref { base_type, size } => {
+            write!(w, " type 0x{:08x} size {}", base_type.0, size)?;
+        }
+        gimli::Operation::Convert { base_type } => {
+            write!(w, " type 0x{:08x}", base_type.0)?;
+        }
+        gimli::Operation::Reinterpret { base_type } => {
+            write!(w, " type 0x{:08x}", base_type.0)?;
+        }
         gimli::Operation::Drop |
         gimli::Operation::Swap |
         gimli::Operation::Rot |
