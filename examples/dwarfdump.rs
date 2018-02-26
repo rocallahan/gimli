@@ -8,10 +8,12 @@ extern crate getopts;
 extern crate memmap;
 extern crate num_cpus;
 extern crate object;
+extern crate regex;
 
 use fallible_iterator::FallibleIterator;
 use gimli::{CompilationUnitHeader, UnwindSection};
 use object::Object;
+use regex::bytes::Regex;
 use std::collections::HashMap;
 use std::env;
 use std::io;
@@ -65,7 +67,7 @@ impl OrderedWriter {
         } else {
             assert!(lock.next < index);
             data.shrink_to_fit();
-            lock.buffered.insert(index, mem::replace(data, Vec::new()));
+            lock.buffered.insert(index, mem::replace(data, Vec::with_capacity(100*1024*1024)));
         }
         Ok(())
     }
@@ -133,6 +135,7 @@ struct Flags {
     pubtypes: bool,
     aranges: bool,
     raw: bool,
+    match_units: Option<String>,
 }
 
 fn print_usage(opts: &getopts::Options) -> ! {
@@ -154,6 +157,7 @@ fn main() {
     opts.optflag("r", "", "print .debug_aranges section");
     opts.optflag("y", "", "print .debug_pubtypes section");
     opts.optflag("", "raw", "print raw data values");
+    opts.optopt("m", "match-units", "print compilation units whose output matches a regex", "REGEX");
 
     let matches = match opts.parse(env::args().skip(1)) {
         Ok(m) => m,
@@ -203,6 +207,7 @@ fn main() {
         flags.pubtypes = true;
         flags.aranges = true;
     }
+    flags.match_units = matches.opt_str("m");
 
     for file_path in &matches.free {
         if matches.free.len() != 1 {
@@ -568,6 +573,7 @@ fn dump_info<R: Reader>(
     let writer = OrderedWriter::new();
     let units = debug_info.units().collect::<Vec<_>>().unwrap();
     let index = AtomicUsize::new(0);
+    let regex = flags.match_units.as_ref().map(|r| Regex::new(r).unwrap());
     let process_unit = |index, unit: &CompilationUnitHeader<R, R::Offset>, buf: &mut Vec<u8>| {
         let abbrevs = match unit.abbreviations(debug_abbrev) {
             Ok(abbrevs) => abbrevs,
@@ -601,12 +607,20 @@ fn dump_info<R: Reader>(
                 error::Error::description(&err)
             ).unwrap();
         };
-        writer.write(index, buf).unwrap();
+        if regex.as_ref().map(|r| r.is_match(&buf)).unwrap_or(true) {
+            writer.write(index, buf).unwrap();
+        } else {
+            // Retain our current buffer and pass a new empty buffer to the writer,
+            // which might take ownership of it.
+            buf.clear();
+            let mut tmp = Vec::new();
+            writer.write(index, &mut tmp).unwrap();
+        }
     };
     crossbeam::scope(|scope| {
         for _ in 0..num_cpus::get() {
             scope.spawn(|| {
-                let mut buf = Vec::new();
+                let mut buf = Vec::with_capacity(100*1024*1024);
                 loop {
                     let i = index.fetch_add(1, Ordering::SeqCst);
                     if i >= units.len() {
