@@ -12,7 +12,7 @@ use parser::{Error, Result};
 use reader::Reader;
 
 /// A trait describing the endianity of some buffer.
-pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq {
+pub trait Endianity: Debug + Default + Clone + Copy + PartialEq + Eq + Send + Sync {
     /// Return true for big endian byte order.
     fn is_big_endian(self) -> bool;
 

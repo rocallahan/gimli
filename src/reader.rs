@@ -179,7 +179,7 @@ impl ReaderOffset for usize {
 ///
 /// All read operations advance the section offset of the reader
 /// unless specified otherwise.
-pub trait Reader: Debug + Clone {
+pub trait Reader: Debug + Clone + Send + Sync {
     /// The endianity of bytes that are read.
     type Endian: Endianity;
 

@@ -1,14 +1,16 @@
 // Allow clippy lints when building without clippy.
 #![allow(unknown_lints)]
 
+extern crate crossbeam;
 extern crate fallible_iterator;
 extern crate gimli;
 extern crate getopts;
 extern crate memmap;
+extern crate num_cpus;
 extern crate object;
 
 use fallible_iterator::FallibleIterator;
-use gimli::UnwindSection;
+use gimli::{CompilationUnitHeader, UnwindSection};
 use object::Object;
 use std::collections::HashMap;
 use std::env;
@@ -17,8 +19,57 @@ use std::io::{BufWriter, Write};
 use std::fs;
 use std::process;
 use std::error;
+use std::mem;
 use std::result;
 use std::fmt::{self, Debug};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+struct OrderedWriterInner {
+    next: usize,
+    buffered: HashMap<usize, Vec<u8>>,
+}
+
+struct OrderedWriter {
+    shared: Mutex<OrderedWriterInner>,
+}
+
+impl OrderedWriter {
+    fn new() -> Self {
+        OrderedWriter {
+            shared: Mutex::new(OrderedWriterInner {
+                        next: 0,
+                        buffered: HashMap::new(),
+                    })
+        }
+    }
+
+    fn write(&self, index: usize, data: &mut Vec<u8>) -> io::Result<()> {
+        let mut lock = self.shared.lock().unwrap();
+        if lock.next == index {
+            let out = io::stdout();
+            let w = &mut out.lock();
+            w.write_all(&*data)?;
+            lock.next += 1;
+            loop {
+                let next = lock.next;
+                let n = if let Some(n) = lock.buffered.remove(&next) {
+                    n
+                } else {
+                    break;
+                };
+                w.write_all(&n)?;
+                lock.next += 1;
+            }
+            data.clear();
+        } else {
+            assert!(lock.next < index);
+            data.shrink_to_fit();
+            lock.buffered.insert(index, mem::replace(data, Vec::new()));
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
@@ -194,11 +245,7 @@ fn main() {
         } else {
             gimli::RunTimeEndian::Big
         };
-        let ret = {
-            let stdout = io::stdout();
-            let mut writer = BufWriter::new(stdout.lock());
-            dump_file(&mut writer, &file, endian, &flags)
-        };
+        let ret = dump_file(&file, endian, &flags);
         match ret {
             Ok(_) => (),
             Err(err) => println!(
@@ -210,7 +257,7 @@ fn main() {
     }
 }
 
-fn dump_file<Endian, W: Write>(w: &mut W, file: &object::File, endian: Endian, flags: &Flags) -> Result<()>
+fn dump_file<Endian>(file: &object::File, endian: Endian, flags: &Flags) -> Result<()>
 where
     Endian: gimli::Endianity,
 {
@@ -247,12 +294,12 @@ where
     let debug_rnglists = load_section(file, endian);
     let rnglists = &gimli::RangeLists::new(debug_ranges, debug_rnglists)?;
 
+    let out = io::stdout();
     if flags.eh_frame {
-        dump_eh_frame(w, eh_frame)?;
+        dump_eh_frame(&mut BufWriter::new(out.lock()), eh_frame)?;
     }
     if flags.info {
         dump_info(
-            w,
             debug_info,
             debug_abbrev,
             debug_line,
@@ -263,7 +310,7 @@ where
             flags,
         )?;
         dump_types(
-            w,
+            &mut BufWriter::new(out.lock()),
             debug_types,
             debug_abbrev,
             debug_line,
@@ -273,8 +320,9 @@ where
             endian,
             flags,
         )?;
-        writeln!(w)?;
+        writeln!(&mut out.lock())?;
     }
+    let w = &mut BufWriter::new(out.lock());
     if flags.line {
         dump_line(w, debug_line, debug_info, debug_abbrev, debug_str)?;
     }
@@ -504,8 +552,7 @@ fn dump_cfi_instructions<R: Reader, W: Write>(
 }
 
 #[allow(too_many_arguments)]
-fn dump_info<R: Reader, W: Write>(
-    w: &mut W,
+fn dump_info<R: Reader>(
     debug_info: &gimli::DebugInfo<R>,
     debug_abbrev: &gimli::DebugAbbrev<R>,
     debug_line: &gimli::DebugLine<R>,
@@ -515,23 +562,27 @@ fn dump_info<R: Reader, W: Write>(
     endian: R::Endian,
     flags: &Flags,
 ) -> Result<()> {
-    writeln!(w, "\n.debug_info")?;
+    let out = io::stdout();
+    writeln!(&mut BufWriter::new(out.lock()), "\n.debug_info")?;
 
-    let mut iter = debug_info.units();
-    while let Some(unit) = iter.next()? {
+    let writer = OrderedWriter::new();
+    let units = debug_info.units().collect::<Vec<_>>().unwrap();
+    let index = AtomicUsize::new(0);
+    let process_unit = |index, unit: &CompilationUnitHeader<R, R::Offset>, buf: &mut Vec<u8>| {
         let abbrevs = match unit.abbreviations(debug_abbrev) {
             Ok(abbrevs) => abbrevs,
             Err(err) => {
-                writeln!(w,
+                writeln!(buf,
                     "Failed to parse abbreviations: {}",
                     error::Error::description(&err)
-                )?;
-                continue;
+                ).unwrap();
+                writer.write(index, buf).unwrap();
+                return;
             }
         };
 
         let entries_result = dump_entries(
-            w,
+            buf,
             unit.offset().0,
             unit.entries(&abbrevs),
             unit.address_size(),
@@ -545,12 +596,27 @@ fn dump_info<R: Reader, W: Write>(
             flags,
         );
         if let Err(err) = entries_result {
-            writeln!(w,
+            writeln!(buf,
                 "Failed to dump entries: {}",
                 error::Error::description(&err)
-            )?;
+            ).unwrap();
         };
-    }
+        writer.write(index, buf).unwrap();
+    };
+    crossbeam::scope(|scope| {
+        for _ in 0..num_cpus::get() {
+            scope.spawn(|| {
+                let mut buf = Vec::new();
+                loop {
+                    let i = index.fetch_add(1, Ordering::SeqCst);
+                    if i >= units.len() {
+                        break;
+                    }
+                    process_unit(i, &units[i], &mut buf);
+                }
+            });
+        }
+    });
     Ok(())
 }
 
