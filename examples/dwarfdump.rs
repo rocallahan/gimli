@@ -653,6 +653,11 @@ fn dump_entries<R: Reader, W: Write>(
         comp_name: None,
     };
 
+    let mut spaces = String::with_capacity(1000);
+    for _ in 0..1000 {
+        spaces.push(' ');
+    }
+
     let mut print_local = true;
     let mut depth = 0;
     while let Some((delta_depth, entry)) = entries.next_dfs()? {
@@ -667,12 +672,11 @@ fn dump_entries<R: Reader, W: Write>(
             print_local = false;
         }
         writeln!(w,
-            "<{:2}><0x{:08x}>{:indent$}{}",
+            "<{:2}><0x{:08x}>{}{}",
             depth,
             entry.offset().0,
-            "",
-            entry.tag(),
-            indent = indent
+            &spaces[..indent],
+            entry.tag()
         )?;
 
         if entry.tag() == gimli::DW_TAG_compile_unit || entry.tag() == gimli::DW_TAG_type_unit {
@@ -701,7 +705,7 @@ fn dump_entries<R: Reader, W: Write>(
 
         let mut attrs = entry.attrs();
         while let Some(attr) = attrs.next()? {
-            write!(w, "{:indent$}{:27} ", "", attr.name(), indent = indent + 18)?;
+            write!(w, "{}{:27} ", &spaces[..(indent + 18)], attr.name())?;
             if flags.raw {
                 writeln!(w, "{:?}", attr.raw_value())?;
             } else {
