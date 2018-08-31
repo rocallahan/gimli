@@ -1410,7 +1410,7 @@ fn dump_range_list<R: Reader, W: Write>(
             }
             &gimli::RawRngListEntry::StartEnd { begin, end } => {
                 let range = if begin == end {
-                    gimli::Range { begin, end }
+                    gimli::Range { begin, end, is_end: false }
                 } else {
                     ranges.next()?.unwrap()
                 };

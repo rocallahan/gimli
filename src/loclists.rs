@@ -314,7 +314,7 @@ impl<R: Reader> RawLocListEntry<R> {
     fn parse(input: &mut R, version: u16, address_size: u8) -> Result<Option<Self>> {
         if version < 5 {
             let range = Range::parse(input, address_size)?;
-            return Ok(if range.is_end() {
+            return Ok(if range.is_end {
                 None
             } else if range.is_base_address(address_size) {
                 Some(RawLocListEntry::BaseAddress { addr: range.end })
@@ -448,11 +448,12 @@ impl<R: Reader> LocListIter<R> {
                     Range {
                         begin: 0,
                         end: u64::max_value(),
+                        is_end: false,
                     },
                     data,
                 ),
                 RawLocListEntry::OffsetPair { begin, end, data } => {
-                    let mut range = Range { begin, end };
+                    let mut range = Range { begin, end, is_end: false };
                     range.add_base_address(self.base_address, self.raw.address_size);
                     (range, data)
                 }
@@ -460,6 +461,7 @@ impl<R: Reader> LocListIter<R> {
                     Range {
                         begin: begin,
                         end: end,
+                        is_end: false,
                     },
                     data,
                 ),
@@ -471,6 +473,7 @@ impl<R: Reader> LocListIter<R> {
                     Range {
                         begin: begin,
                         end: begin + length,
+                        is_end: false,
                     },
                     data,
                 ),
@@ -576,6 +579,7 @@ mod tests {
                 range: Range {
                     begin: 0x01010200,
                     end: 0x01010300,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[2, 0, 0, 0], LittleEndian)),
             }))
@@ -588,6 +592,7 @@ mod tests {
                 range: Range {
                     begin: 0x02010400,
                     end: 0x02010500,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[3, 0, 0, 0], LittleEndian)),
             }))
@@ -600,6 +605,7 @@ mod tests {
                 range: Range {
                     begin: 0x02010600,
                     end: 0x02010600,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[4, 0, 0, 0], LittleEndian)),
             }))
@@ -610,6 +616,7 @@ mod tests {
                 range: Range {
                     begin: 0x02010800,
                     end: 0x02010900,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[5, 0, 0, 0], LittleEndian)),
             }))
@@ -622,6 +629,7 @@ mod tests {
                 range: Range {
                     begin: 0x02010a00,
                     end: 0x02010b00,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[6, 0, 0, 0], LittleEndian)),
             }))
@@ -634,6 +642,7 @@ mod tests {
                 range: Range {
                     begin: 0x02010c00,
                     end: 0x02010d00,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[7, 0, 0, 0], LittleEndian)),
             }))
@@ -646,6 +655,7 @@ mod tests {
                 range: Range {
                     begin: 0x02000000,
                     end: 0x02000001,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[8, 0, 0, 0], LittleEndian)),
             }))
@@ -658,6 +668,7 @@ mod tests {
                 range: Range {
                     begin: 0x00000000,
                     end: 0xffffffff,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[9, 0, 0, 0], LittleEndian)),
             }))
@@ -670,6 +681,7 @@ mod tests {
                 range: Range {
                     begin: 0,
                     end: u64::max_value(),
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[10, 0, 0, 0], LittleEndian)),
             }))
@@ -739,6 +751,7 @@ mod tests {
                 range: Range {
                     begin: 0x01010200,
                     end: 0x01010300,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[2, 0, 0, 0], LittleEndian)),
             }))
@@ -751,6 +764,7 @@ mod tests {
                 range: Range {
                     begin: 0x02010400,
                     end: 0x02010500,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[3, 0, 0, 0], LittleEndian)),
             }))
@@ -763,6 +777,7 @@ mod tests {
                 range: Range {
                     begin: 0x02010600,
                     end: 0x02010600,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[4, 0, 0, 0], LittleEndian)),
             }))
@@ -773,6 +788,7 @@ mod tests {
                 range: Range {
                     begin: 0x02010800,
                     end: 0x02010900,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[5, 0, 0, 0], LittleEndian)),
             }))
@@ -785,6 +801,7 @@ mod tests {
                 range: Range {
                     begin: 0x02010a00,
                     end: 0x02010b00,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[6, 0, 0, 0], LittleEndian)),
             }))
@@ -797,6 +814,7 @@ mod tests {
                 range: Range {
                     begin: 0x02010c00,
                     end: 0x02010d00,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[7, 0, 0, 0], LittleEndian)),
             }))
@@ -809,6 +827,7 @@ mod tests {
                 range: Range {
                     begin: 0x02000000,
                     end: 0x02000001,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[8, 0, 0, 0], LittleEndian)),
             }))
@@ -821,6 +840,7 @@ mod tests {
                 range: Range {
                     begin: 0x00000000,
                     end: 0xffffffff,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[9, 0, 0, 0], LittleEndian)),
             }))
@@ -833,6 +853,7 @@ mod tests {
                 range: Range {
                     begin: 0,
                     end: u64::max_value(),
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[10, 0, 0, 0], LittleEndian)),
             }))
@@ -890,6 +911,7 @@ mod tests {
                 range: Range {
                     begin: 0x01010200,
                     end: 0x01010300,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[2, 0, 0, 0], LittleEndian)),
             }))
@@ -902,6 +924,7 @@ mod tests {
                 range: Range {
                     begin: 0x02010400,
                     end: 0x02010500,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[3, 0, 0, 0], LittleEndian)),
             }))
@@ -914,6 +937,7 @@ mod tests {
                 range: Range {
                     begin: 0x02010600,
                     end: 0x02010600,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[4, 0, 0, 0], LittleEndian)),
             }))
@@ -924,6 +948,7 @@ mod tests {
                 range: Range {
                     begin: 0x02010800,
                     end: 0x02010900,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[5, 0, 0, 0], LittleEndian)),
             }))
@@ -936,6 +961,7 @@ mod tests {
                 range: Range {
                     begin: 0x02000000,
                     end: 0x02000001,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[6, 0, 0, 0], LittleEndian)),
             }))
@@ -948,6 +974,7 @@ mod tests {
                 range: Range {
                     begin: 0x00000000,
                     end: 0xffffffff,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[7, 0, 0, 0], LittleEndian)),
             }))
@@ -1005,6 +1032,7 @@ mod tests {
                 range: Range {
                     begin: 0x01010200,
                     end: 0x01010300,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[2, 0, 0, 0], LittleEndian)),
             }))
@@ -1017,6 +1045,7 @@ mod tests {
                 range: Range {
                     begin: 0x02010400,
                     end: 0x02010500,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[3, 0, 0, 0], LittleEndian)),
             }))
@@ -1029,6 +1058,7 @@ mod tests {
                 range: Range {
                     begin: 0x02010600,
                     end: 0x02010600,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[4, 0, 0, 0], LittleEndian)),
             }))
@@ -1039,6 +1069,7 @@ mod tests {
                 range: Range {
                     begin: 0x02010800,
                     end: 0x02010900,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[5, 0, 0, 0], LittleEndian)),
             }))
@@ -1051,6 +1082,7 @@ mod tests {
                 range: Range {
                     begin: 0x02000000,
                     end: 0x02000001,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[6, 0, 0, 0], LittleEndian)),
             }))
@@ -1063,6 +1095,7 @@ mod tests {
                 range: Range {
                     begin: 0x0,
                     end: 0xffffffffffffffff,
+                    is_end: false,
                 },
                 data: Expression(EndianSlice::new(&[7, 0, 0, 0], LittleEndian)),
             }))

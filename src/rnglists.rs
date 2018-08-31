@@ -298,7 +298,7 @@ impl RawRngListEntry {
     fn parse<R: Reader>(input: &mut R, version: u16, address_size: u8) -> Result<Option<Self>> {
         if version < 5 {
             let range = Range::parse(input, address_size)?;
-            return Ok(if range.is_end() {
+            return Ok(if range.is_end {
                 None
             } else if range.is_base_address(address_size) {
                 Some(RawRngListEntry::BaseAddress { addr: range.end })
@@ -418,17 +418,19 @@ impl<R: Reader> RngListIter<R> {
                     continue;
                 }
                 RawRngListEntry::OffsetPair { begin, end } => {
-                    let mut range = Range { begin, end };
+                    let mut range = Range { begin, end, is_end: false };
                     range.add_base_address(self.base_address, self.raw.address_size);
                     range
                 }
                 RawRngListEntry::StartEnd { begin, end } => Range {
                     begin: begin,
                     end: end,
+                    is_end: false,
                 },
                 RawRngListEntry::StartLength { begin, length } => Range {
                     begin: begin,
                     end: begin + length,
+                    is_end: false,
                 },
                 _ => {
                     // We don't support AddressIndex-based entries yet
@@ -455,7 +457,7 @@ impl<R: Reader> FallibleIterator for RngListIter<R> {
     }
 }
 
-/// An address range from the `.debug_ranges` section.
+/// An address range from a `.debug_ranges` or `.debug_rnglists` section.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Range {
     /// The beginning address of the range.
@@ -463,17 +465,13 @@ pub struct Range {
 
     /// The first address past the end of the range.
     pub end: u64,
+
+    /// True if this is the last range in a list.
+    /// This will only occur for raw ranges.
+    pub is_end: bool,
 }
 
 impl Range {
-    /// Check if this is a range end entry.
-    ///
-    /// This will only occur for raw ranges.
-    #[inline]
-    pub fn is_end(&self) -> bool {
-        self.begin == 0 && self.end == 0
-    }
-
     /// Check if this is a base address selection entry.
     ///
     /// A base address selection entry changes the base address that subsequent
@@ -488,7 +486,7 @@ impl Range {
     /// This should only be called for raw ranges.
     #[inline]
     pub fn add_base_address(&mut self, base_address: u64, address_size: u8) {
-        debug_assert!(!self.is_end());
+        debug_assert!(!self.is_end);
         debug_assert!(!self.is_base_address(address_size));
         let mask = !0 >> (64 - address_size * 8);
         self.begin = base_address.wrapping_add(self.begin) & mask;
@@ -504,6 +502,7 @@ impl Range {
         let range = Range {
             begin: begin,
             end: end,
+            is_end: begin == 0 && end == 0,
         };
         Ok(range)
     }
@@ -546,6 +545,8 @@ mod tests {
             .L8(7).L32(0x2010c00).uleb(0x100)
             // An OffsetPair that starts at 0.
             .L8(4).uleb(0).uleb(1)
+            // An OffsetPair that starts and ends at 0.
+            .L8(4).uleb(0).uleb(0)
             // An OffsetPair that ends at -1.
             .L8(5).L32(0)
             .L8(4).uleb(0).uleb(0xffffffff)
@@ -568,6 +569,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x01010200,
                 end: 0x01010300,
+                is_end: false,
             }))
         );
 
@@ -577,6 +579,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02010400,
                 end: 0x02010500,
+                is_end: false,
             }))
         );
 
@@ -586,6 +589,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02010600,
                 end: 0x02010600,
+                is_end: false,
             }))
         );
         assert_eq!(
@@ -593,6 +597,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02010800,
                 end: 0x02010900,
+                is_end: false,
             }))
         );
 
@@ -602,6 +607,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02010a00,
                 end: 0x02010b00,
+                is_end: false,
             }))
         );
 
@@ -611,6 +617,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02010c00,
                 end: 0x02010d00,
+                is_end: false,
             }))
         );
 
@@ -620,6 +627,17 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02000000,
                 end: 0x02000001,
+                is_end: false,
+            }))
+        );
+
+        // A range that starts and ends at 0.
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x02000000,
+                end: 0x02000000,
+                is_end: false,
             }))
         );
 
@@ -629,6 +647,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x00000000,
                 end: 0xffffffff,
+                is_end: false,
             }))
         );
 
@@ -671,6 +690,8 @@ mod tests {
             .L8(7).L64(0x2010c00).uleb(0x100)
             // An OffsetPair that starts at 0.
             .L8(4).uleb(0).uleb(1)
+            // An OffsetPair that starts and ends at 0.
+            .L8(4).uleb(0).uleb(0)
             // An OffsetPair that ends at -1.
             .L8(5).L64(0)
             .L8(4).uleb(0).uleb(0xffffffff)
@@ -693,6 +714,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x01010200,
                 end: 0x01010300,
+                is_end: false,
             }))
         );
 
@@ -702,6 +724,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02010400,
                 end: 0x02010500,
+                is_end: false,
             }))
         );
 
@@ -711,6 +734,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02010600,
                 end: 0x02010600,
+                is_end: false,
             }))
         );
         assert_eq!(
@@ -718,6 +742,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02010800,
                 end: 0x02010900,
+                is_end: false,
             }))
         );
 
@@ -727,6 +752,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02010a00,
                 end: 0x02010b00,
+                is_end: false,
             }))
         );
 
@@ -736,6 +762,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02010c00,
                 end: 0x02010d00,
+                is_end: false,
             }))
         );
 
@@ -745,6 +772,17 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02000000,
                 end: 0x02000001,
+                is_end: false,
+            }))
+        );
+
+        // A range that starts and ends at 0.
+        assert_eq!(
+            ranges.next(),
+            Ok(Some(Range {
+                begin: 0x02000000,
+                end: 0x02000000,
+                is_end: false,
             }))
         );
 
@@ -754,6 +792,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x00000000,
                 end: 0xffffffff,
+                is_end: false,
             }))
         );
 
@@ -772,29 +811,32 @@ mod tests {
         let range = Range {
             begin: 0,
             end: 0xffffffff,
+            is_end: false,
         };
-        assert!(!range.is_end());
+        assert!(!range.is_end);
         assert!(!range.is_base_address(4));
         assert!(!range.is_base_address(8));
 
-        let range = Range { begin: 0, end: 0 };
-        assert!(range.is_end());
+        let range = Range { begin: 0, end: 0, is_end: true };
+        assert!(range.is_end);
         assert!(!range.is_base_address(4));
         assert!(!range.is_base_address(8));
 
         let range = Range {
             begin: 0xffffffff,
             end: 0,
+            is_end: false,
         };
-        assert!(!range.is_end());
+        assert!(!range.is_end);
         assert!(range.is_base_address(4));
         assert!(!range.is_base_address(8));
 
         let range = Range {
             begin: 0xffffffffffffffff,
             end: 0,
+            is_end: false,
         };
-        assert!(!range.is_end());
+        assert!(!range.is_end);
         assert!(!range.is_base_address(4));
         assert!(range.is_base_address(8));
     }
@@ -840,6 +882,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x01010200,
                 end: 0x01010300,
+                is_end: false,
             }))
         );
 
@@ -849,6 +892,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02010400,
                 end: 0x02010500,
+                is_end: false,
             }))
         );
 
@@ -858,6 +902,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02010600,
                 end: 0x02010600,
+                is_end: false,
             }))
         );
         assert_eq!(
@@ -865,6 +910,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02010800,
                 end: 0x02010900,
+                is_end: false,
             }))
         );
 
@@ -874,6 +920,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02000000,
                 end: 0x02000001,
+                is_end: false,
             }))
         );
 
@@ -883,6 +930,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x00000000,
                 end: 0xffffffff,
+                is_end: false,
             }))
         );
 
@@ -937,6 +985,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x01010200,
                 end: 0x01010300,
+                is_end: false,
             }))
         );
 
@@ -946,6 +995,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02010400,
                 end: 0x02010500,
+                is_end: false,
             }))
         );
 
@@ -955,6 +1005,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02010600,
                 end: 0x02010600,
+                is_end: false,
             }))
         );
         assert_eq!(
@@ -962,6 +1013,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02010800,
                 end: 0x02010900,
+                is_end: false,
             }))
         );
 
@@ -971,6 +1023,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x02000000,
                 end: 0x02000001,
+                is_end: false,
             }))
         );
 
@@ -980,6 +1033,7 @@ mod tests {
             Ok(Some(Range {
                 begin: 0x0,
                 end: 0xffffffffffffffff,
+                is_end: false,
             }))
         );
 
